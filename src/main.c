@@ -8,6 +8,12 @@
 #include <libcec/cectypes.h>
 #include "ceccloader.h"
 
+#include <jansson.h>
+#include <mosquitto.h>
+
+#define MQTT_HOST ""
+#define MQTT_PORT 1883
+#define MQTT_TOPIC "media_player/living_room/tv"
 
 typedef struct tv_state {
     cec_power_status power_status;
@@ -17,6 +23,7 @@ typedef struct tv_state {
 
 static bool terminate  = false;
 static bool debug = false;
+static struct mosquitto* mosq = NULL;
 
 static void cb_cec_command_received(void *lib, const cec_command* command);
 static void cb_cec_log_message(void *lib, const cec_log_message* message);
@@ -133,6 +140,22 @@ static void cb_cec_command_received(void *p, const cec_command* command)
                oldpower, old.hdmi_input,
                newpower, tv_state.hdmi_input
         );
+
+        json_t *json = json_object();
+        json_object_set_new(json, "power_state", json_string(newpower));
+        json_object_set_new(json, "hdmi_input", json_integer(tv_state.hdmi_input));
+        char *json_string = json_dumps(json, JSON_INDENT(2));
+
+        if (mosq)
+        {
+            int rc = mosquitto_publish(mosq, NULL, MQTT_TOPIC, strlen(json_string), json_string, 0, true);
+            // TODO reconnect on failure?
+        }
+        
+        printf("%s\n", json_string);
+        free (json_string);
+        json_object_clear(json);
+        json_decref(json);
     }
 }
 
@@ -178,6 +201,23 @@ int main(int argc, char *argv[])
         printf("can't register sighandler\n");
         return -1;
     }
+
+    // init mosquitto
+    mosquitto_lib_init();
+
+    // Create mosquitto instance -- must be ready before we load libcec
+    mosq = mosquitto_new(NULL, true, NULL);
+    //mosquitto_threaded_set(mosq, true);
+
+    if (mosquitto_connect(mosq, MQTT_HOST, MQTT_PORT, 0) != MOSQ_ERR_SUCCESS)
+    {
+        fprintf(stderr, "Could not connect to %s\n", MQTT_HOST);
+        mosquitto_destroy(mosq);
+        mosquitto_lib_cleanup();
+        exit(EXIT_FAILURE);
+    }
+
+    
       
     libcec_configuration config;
     libcec_interface_t   iface;
@@ -194,6 +234,8 @@ int main(int argc, char *argv[])
     if ((rc = libcecc_initialise(&config, &iface, NULL)) != 1)
     {
         fprintf(stderr, "Could not initialize libcec: %d\n", rc);
+        mosquitto_destroy(mosq);
+        mosquitto_lib_cleanup();
         exit(EXIT_FAILURE);
     }
 
@@ -202,8 +244,13 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "Unable to open device on port RPI\n");
         libcecc_destroy(&iface);
+        mosquitto_destroy(mosq);
+        mosquitto_lib_cleanup();
         exit(EXIT_FAILURE);
     }
+
+    
+    
 
 //    printf("Opened RPI device\n");
 
@@ -215,5 +262,8 @@ int main(int argc, char *argv[])
     
 
     libcecc_destroy(&iface);
+    mosquitto_destroy(mosq);
+    mosquitto_lib_cleanup();
+
     return 0;
 }
