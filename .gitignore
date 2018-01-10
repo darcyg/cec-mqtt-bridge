@@ -21,3 +21,4 @@ build/
 \#*\#
 .\#*
 src/main
+cec-mqtt-bridge

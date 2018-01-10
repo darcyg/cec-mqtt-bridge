@@ -2,7 +2,8 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <signal.h>
-
+#include <getopt.h>
+#include <ctype.h>
 
 #include <libcec/cecc.h>
 #include <libcec/cectypes.h>
@@ -11,9 +12,32 @@
 #include <jansson.h>
 #include <mosquitto.h>
 
-#define MQTT_HOST ""
-#define MQTT_PORT 1883
-#define MQTT_TOPIC "media_player/living_room/tv"
+static int use_tls = 0;
+static char *mqtt_broker = NULL;
+static char *mqtt_topic = NULL;
+static uint16_t mqtt_port = 1883;
+
+// Option Parsing
+typedef struct _option
+{
+    struct option opt;
+    const char *description;
+    const char *help;
+} Option;
+
+static Option options[] =
+{
+    {{"mqtt-broker", required_argument, 0, 'b'}, "MQTT Broker IP", "The IP address of the MQTT broker to publish to"},
+    {{"mqtt-port", required_argument, 0, 'p'}, "MQTT Broker Port", "The port of the MQTT broker to publish to. Defaults to 1883"},
+    {{"mqtt-use-tls", no_argument, &use_tls, 1}, "Use TLS for MQTT connection", "CURRENTLY UNSUPPORTED. If specified, TLS will be used to connect to the MQTT broker"},
+    {{"mqtt-topic", required_argument, 0, 't'}, "MQTT Topic", "The MQTT topic to publish TV state information to"}
+};
+#define OPTION_COUNT (sizeof(options)/sizeof(options[0]))
+
+#define MAX_HELP_LINE_LENGTH (40)
+static char help_buf[MAX_HELP_LINE_LENGTH + 1];
+
+static void usage(void);
 
 typedef struct tv_state {
     cec_power_status power_status;
@@ -26,7 +50,6 @@ static bool debug = false;
 static struct mosquitto* mosq = NULL;
 
 static void cb_cec_command_received(void *lib, const cec_command* command);
-static void cb_cec_log_message(void *lib, const cec_log_message* message);
 static bool tv_state_equal(TvState *a, TvState *b);
 
 static char devices[16][16] = {
@@ -136,10 +159,13 @@ static void cb_cec_command_received(void *p, const cec_command* command)
         char newpower[24];
         libcec_power_status_to_string(old.power_status, oldpower, sizeof(oldpower));
         libcec_power_status_to_string(tv_state.power_status, newpower, sizeof(newpower));
-        printf("TV State: (%s [HDMI %d]) -> (%s [HDMI %d])\n",
-               oldpower, old.hdmi_input,
-               newpower, tv_state.hdmi_input
-        );
+        if (debug)
+        {
+            printf("TV State: (%s [HDMI %d]) -> (%s [HDMI %d])\n",
+                   oldpower, old.hdmi_input,
+                   newpower, tv_state.hdmi_input
+            );
+        }
 
         json_t *json = json_object();
         json_object_set_new(json, "power_state", json_string(newpower));
@@ -148,23 +174,25 @@ static void cb_cec_command_received(void *p, const cec_command* command)
 
         if (mosq)
         {
-            int rc = mosquitto_publish(mosq, NULL, MQTT_TOPIC, strlen(json_string), json_string, 0, true);
+            int rc = mosquitto_publish(mosq, NULL, mqtt_topic, strlen(json_string), json_string, 0, true);
             // TODO reconnect on failure?
+            if (rc != MOSQ_ERR_SUCCESS)
+            {
+                // Set terminate and let the process die and maybe be
+                // restarted
+                terminate = true;
+            }
         }
-        
-        printf("%s\n", json_string);
+
+        if (debug)
+        {
+            printf("%s\n", json_string);
+        }
         free (json_string);
         json_object_clear(json);
         json_decref(json);
     }
 }
-
-static void cb_cec_log_message(void *p, const cec_log_message* message)
-{
-    (void)p;
-    printf("%s\n", message->message);
-}
-
 
 static bool tv_state_equal(TvState *a, TvState *b)
 {
@@ -185,20 +213,155 @@ static bool tv_state_equal(TvState *a, TvState *b)
 
 static void sighandler(int signal)
 {
+    (void)signal;
     // TODO
     terminate = true;
 }
 
+static void usage(void)
+{
+    printf("Usage: cec-mqtt-bridge <arguments>\n");
+    printf("Sniff a CEC bus and send power state events to an MQTT broker\n");
+    printf("\n");
 
+    for (size_t i = 0; i < OPTION_COUNT; i++)
+    {
+        Option *option = &options[i];
+
+        if (isalnum((int)option->opt.val)) {
+            printf("  -%c", option->opt.val);
+            if (option->opt.name) {
+                printf(", ");
+            } else {
+                printf("  ");
+            }
+        } else {
+            printf("      ");
+        }
+        if (option->opt.name) {
+            size_t opt_len = strlen(option->opt.name);
+            if (option->opt.has_arg == no_argument) {
+                printf("--%-20s", option->opt.name);
+            } else if (option->opt.has_arg == optional_argument) {
+                printf("--%s[=VAL]%*s", option->opt.name, 20 - (int)opt_len - 6, " ");
+            } else {
+                printf("--%s=VAL%*s", option->opt.name, 20 - (int)opt_len - 4, " ");
+            }
+        } else {
+            printf("%-22s", " ");
+        }
+        if (option->description) {
+            printf("  %s", option->description);
+        }
+        if (option->help) {
+            size_t help_len = strlen(option->help);
+            size_t ofs = 0;
+            while (ofs < help_len) {
+                size_t i = ofs + MAX_HELP_LINE_LENGTH;
+                if (i > help_len) {
+                    i = help_len;
+                } else {
+                    while(!isspace(option->help[i])) {
+                        i--;
+                    }
+                }
+                strncpy(help_buf, option->help + ofs, i - ofs);
+                help_buf[i - ofs] = '\0';
+                printf("\n%32s%s", " ", help_buf);
+                ofs = i + 1;
+            }
+
+        }
+        printf("\n");
+    }
+}
 
 int main(int argc, char *argv[])
 {
+    // build a long_option array
+    size_t long_options_size = sizeof(struct option) * (OPTION_COUNT + 1);
+    struct option *long_options = malloc(long_options_size);
+    memset(long_options, 0, long_options_size);
+
+    for (size_t i = 0; i < OPTION_COUNT; i++)
+    {
+        long_options[i] = options[i].opt;
+    }
+    
     // TODO command line arguments for adapter and MQTT
-    (void)argc;
-    (void)argv;
+    int c;
+    int opt_index = 0;
+    while (true)
+    {
+        c = getopt_long(argc, argv, "b:p:t:", long_options, &opt_index);
+        if (c == -1)
+        {
+            break;
+        }
+        switch (c) {
+        case 'b':
+        {
+            size_t len = strlen(optarg);
+            mqtt_broker = malloc(sizeof(char) * (len + 1));
+            if (mqtt_broker == NULL)
+            {
+                fprintf(stderr, "Failed to allocate %zu bytes for mqtt broker string\n", len);
+                exit(EXIT_FAILURE);
+            }
+            strncpy(mqtt_broker, optarg, len);
+            break;
+        }
+        case 'p':
+        {
+            uint32_t mqtt_port_arg = strtoul(optarg, NULL, 10);
+            if (mqtt_port_arg <= 1024 || mqtt_port_arg > 65535)
+            {
+                fprintf(stderr, "Invalid value %u for mqtt-port; must be between 1024 and 65535\n", mqtt_port_arg);
+                return EXIT_FAILURE;
+            }
+            mqtt_port = mqtt_port_arg;
+            break;
+        }
+        case 't':
+        {
+            size_t len = strlen(optarg);
+            mqtt_topic = malloc(sizeof(char) * (len + 1));
+            if (mqtt_topic == NULL)
+            {
+                fprintf(stderr, "Failed to allocate %zu bytes for mqtt topic string\n", len);
+                return EXIT_FAILURE;
+            }
+            strncpy(mqtt_topic, optarg, len);
+            break;
+        }
+        case 'h':
+        case '?':
+        default:
+            usage();
+            exit (EXIT_FAILURE);
+        }
+    }
+
+    free(long_options);
+
+    if (mqtt_topic == NULL)
+    {
+        fprintf(stderr, "Must specify a value for -t/--mqtt-topic\n\n");
+        usage();
+        exit(EXIT_FAILURE);
+    }
+    
+    if (mqtt_broker == NULL)
+    {
+        fprintf(stderr, "Must specify a value for -b/--mqtt-broker\n\n");
+        usage();
+        exit(EXIT_FAILURE);
+    }
+
+      
     if (signal(SIGINT, sighandler) == SIG_ERR)
     {
-        printf("can't register sighandler\n");
+        fprintf(stderr, "can't register sighandler\n");
         return -1;
     }
 
@@ -209,15 +372,13 @@ int main(int argc, char *argv[])
     mosq = mosquitto_new(NULL, true, NULL);
     //mosquitto_threaded_set(mosq, true);
 
-    if (mosquitto_connect(mosq, MQTT_HOST, MQTT_PORT, 0) != MOSQ_ERR_SUCCESS)
+    if (mosquitto_connect(mosq, mqtt_broker, mqtt_port, 0) != MOSQ_ERR_SUCCESS)
     {
-        fprintf(stderr, "Could not connect to %s\n", MQTT_HOST);
+        fprintf(stderr, "Could not connect to %s:%u\n", mqtt_broker, mqtt_port);
         mosquitto_destroy(mosq);
         mosquitto_lib_cleanup();
         exit(EXIT_FAILURE);
     }
-
-    
       
     libcec_configuration config;
     libcec_interface_t   iface;
@@ -264,6 +425,8 @@ int main(int argc, char *argv[])
     libcecc_destroy(&iface);
     mosquitto_destroy(mosq);
     mosquitto_lib_cleanup();
+    free(mqtt_broker);
+    free(mqtt_topic);
 
     return 0;
 }
