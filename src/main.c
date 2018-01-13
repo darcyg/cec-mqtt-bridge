@@ -1,3 +1,33 @@
+/*
+  Copyright (c) 2018, Garrett L. Ward
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+  * Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+  * Neither the name of picture_sort nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -30,7 +60,8 @@ static Option options[] =
     {{"mqtt-broker", required_argument, 0, 'b'}, "MQTT Broker IP", "The IP address of the MQTT broker to publish to"},
     {{"mqtt-port", required_argument, 0, 'p'}, "MQTT Broker Port", "The port of the MQTT broker to publish to. Defaults to 1883"},
     {{"mqtt-use-tls", no_argument, &use_tls, 1}, "Use TLS for MQTT connection", "CURRENTLY UNSUPPORTED. If specified, TLS will be used to connect to the MQTT broker"},
-    {{"mqtt-topic", required_argument, 0, 't'}, "MQTT Topic", "The MQTT topic to publish TV state information to"}
+    {{"mqtt-topic", required_argument, 0, 't'}, "MQTT Topic", "The MQTT topic to publish TV state information to"},
+    {{"debug", no_argument, 0, 'd'}, "Enable additional debug messages"},
 };
 #define OPTION_COUNT (sizeof(options)/sizeof(options[0]))
 
@@ -293,7 +324,7 @@ int main(int argc, char *argv[])
     int opt_index = 0;
     while (true)
     {
-        c = getopt_long(argc, argv, "b:p:t:", long_options, &opt_index);
+        c = getopt_long(argc, argv, "b:p:t:d", long_options, &opt_index);
         if (c == -1)
         {
             break;
@@ -332,6 +363,11 @@ int main(int argc, char *argv[])
                 return EXIT_FAILURE;
             }
             strncpy(mqtt_topic, optarg, len);
+            break;
+        }
+        case 'd':
+        {
+            debug = true;
             break;
         }
         case 'h':

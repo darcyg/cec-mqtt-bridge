@@ -5,8 +5,12 @@ CFLAGS += -Wall
 CFLAGS += -pedantic
 CFLAGS += --std=c11
 
-# Edit this to point to the correct ceccloader.h
-CFLAGS += -I$(HOME)/src/libcec/include
+# Ensure LIBCEC_INCLUDE_DIR points to a folder containing ceccloader.h
+ifndef LIBCEC_INCLUDE_DIR
+$(error LIBCEC_INCLUDE_DIR must be set)
+endif
+
+CFLAGS += -I$(LIBCEC_INCLUDE_DIR)
 
 LDFLAGS =
 LDFLAGS += -ldl
