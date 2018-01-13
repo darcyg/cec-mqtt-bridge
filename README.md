@@ -16,7 +16,6 @@ cec-mqtt-bridge generates MQTT events on state changes from CEC events
     $ sudo make LIBCEC_INCLUDE_DIR=$HOME/src/libcec/include install
 
 
-
 ## Use
 
 There are two important command line arguments:
@@ -42,6 +41,24 @@ if the input is not currently known.
   "hdmi_input": 0
 }
 ```
+
+## Autostart
+
+An example systemd unit is provided in examples/. It assumes a
+configuration file will be present in `/etc/conf.d/cec-mqtt-bridge` with
+the following contents:
+
+```bash
+MQTT_BROKER=ip.addr.of.broker
+MQTT_TOPIC=topic/to/publish/to
+```
+
+You can also add `MQTT_PORT` and modify the unit as necessary if you are
+running on a non-standard port.
+
+The systemd unit sleeps for 30 seconds before starting, as it needs
+networking to be up and on my configuration (Arch Linux ARM on Pi Zero W),
+network-online.target is not sufficient.
 
 ## Caveats
 

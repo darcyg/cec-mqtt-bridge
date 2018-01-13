@@ -61,7 +61,7 @@ static Option options[] =
     {{"mqtt-port", required_argument, 0, 'p'}, "MQTT Broker Port", "The port of the MQTT broker to publish to. Defaults to 1883"},
     {{"mqtt-use-tls", no_argument, &use_tls, 1}, "Use TLS for MQTT connection", "CURRENTLY UNSUPPORTED. If specified, TLS will be used to connect to the MQTT broker"},
     {{"mqtt-topic", required_argument, 0, 't'}, "MQTT Topic", "The MQTT topic to publish TV state information to"},
-    {{"debug", no_argument, 0, 'd'}, "Enable additional debug messages"},
+    {{"debug", no_argument, 0, 'd'}, "Debug", "Enable additional debug messages"},
 };
 #define OPTION_COUNT (sizeof(options)/sizeof(options[0]))
 

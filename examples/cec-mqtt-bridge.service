@@ -1,0 +1,17 @@
+[Unit]
+Description=CEC to MQTT bridge daemon
+Documentation=https://github.com/glward/cec-mqtt-bridge
+Requires=network.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=daemon
+Group=daemon
+EnvironmentFile=/etc/conf.d/cec-mqtt-bridge
+# Even with After network-online I still need a delay. YMMV.
+ExecStartPre=/bin/sleep 30
+ExecStart=/usr/local/bin/cec-mqtt-bridge --mqtt-broker $MQTT_BROKER --mqtt-topic $MQTT_TOPIC
+
+[Install]
+WantedBy=multi-user.target
